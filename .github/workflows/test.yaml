@@ -1,23 +1,33 @@
 name: Build Test
 
-on: [push, pull_request_target, workflow_dispatch]
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+    branches:
+      - master
+  pull_request_target:
+  workflow_dispatch:
 
 jobs:
   build:
     name: Build Test
     runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v3
 
       - name: Install Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 20
       - uses: pnpm/action-setup@v2
         name: Install pnpm
         id: pnpm-install
         with:
-          version: 7
+          version: 8
           run_install: false
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -34,9 +44,6 @@ jobs:
       - name: Install dependencies
         run: |
           make frontend_preinstall
-      - name: Build dist
-        run: |
-          make frontend
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v3
@@ -48,7 +55,11 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Build Debug App
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.2
+        with:
+          version: "v0.4.0"
+      - name: Build Release App
         run: TARGET=release make build
       - name: Archive App File
         uses: actions/upload-artifact@v3

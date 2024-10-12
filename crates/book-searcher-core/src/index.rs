@@ -1,4 +1,4 @@
-use crate::{Book, Searcher};
+use crate::{always_merge_policy::AlwaysMergePolicy, Book, Searcher};
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use log::info;
 use std::{
@@ -36,6 +36,7 @@ fn get_memory_arena_num_bytes() -> usize {
 impl Searcher {
     pub fn index(&mut self, csv_file: impl AsRef<Path>) {
         let mut writer = self.index.writer(get_memory_arena_num_bytes()).unwrap();
+        writer.set_merge_policy(Box::new(AlwaysMergePolicy));
 
         let file = File::open(&csv_file).unwrap();
         let reader = BufReader::new(file);
@@ -58,11 +59,15 @@ impl Searcher {
         for result in rdr.deserialize::<Book>().progress_with(bar) {
             match result {
                 Ok(item) => {
+                    if skip_this_book(&item) {
+                        continue;
+                    }
+
+                    let score_boost = get_book_score_boost(&item);
                     if let Err(err) = writer.add_document(doc!(
                         self.id => item.id,
                         self.title => item.title,
                         self.author => item.author,
-                        self.publisher_exist => !item.publisher.is_empty(),
                         self.publisher => item.publisher,
                         self.extension => item.extension,
                         self.filesize => item.filesize,
@@ -70,7 +75,10 @@ impl Searcher {
                         self.year => item.year,
                         self.pages => item.pages,
                         self.isbn => item.isbn,
+                        self.md5 => item.md5,
                         self.ipfs_cid => item.ipfs_cid,
+                        self.cover_url => item.cover_url,
+                        self.score_boost => score_boost,
                     )) {
                         println!("{err}");
                     }
@@ -113,11 +121,15 @@ impl Searcher {
             for result in rdr.deserialize::<Book>().progress_with(bar_background) {
                 match result {
                     Ok(item) => {
+                        if skip_this_book(&item) {
+                            continue;
+                        }
+
+                        let score_boost = get_book_score_boost(&item);
                         if let Err(err) = writer.add_document(doc!(
                             searcher.id => item.id,
                             searcher.title => item.title,
                             searcher.author => item.author,
-                            searcher.publisher_exist => !item.publisher.is_empty(),
                             searcher.publisher => item.publisher,
                             searcher.extension => item.extension,
                             searcher.filesize => item.filesize,
@@ -125,7 +137,10 @@ impl Searcher {
                             searcher.year => item.year,
                             searcher.pages => item.pages,
                             searcher.isbn => item.isbn,
+                            searcher.md5 => item.md5,
                             searcher.ipfs_cid => item.ipfs_cid,
+                            searcher.cover_url => item.cover_url,
+                            searcher.score_boost => score_boost,
                         )) {
                             println!("{err}");
                         }
@@ -142,6 +157,57 @@ impl Searcher {
 
         bar
     }
+}
+
+// score = origin_score * (10 + score_boost).log10()
+// so score_boost should less than 90
+fn get_book_score_boost(book: &Book) -> u64 {
+    let mut score_boost: u64 = 0;
+    if !book.ipfs_cid.is_empty() {
+        score_boost += 20;
+    }
+
+    if !book.author.is_empty() {
+        score_boost += 10;
+        if book.author.contains("ePUBw") || book.author.contains("chenjin5") {
+            score_boost -= 10;
+        }
+    }
+    if !book.publisher.is_empty() {
+        score_boost += 5;
+        if book.publisher.contains("出版") {
+            score_boost += 30;
+            if book.publisher.contains('_') {
+                score_boost -= 10;
+            }
+        } else if book.publisher.contains("cj5")
+            || book.publisher.contains("chenjin5")
+            || book.publisher.contains("epub")
+            || book.publisher.contains("电子书")
+            || book.publisher.contains("微信")
+        {
+            score_boost -= 10;
+        }
+    }
+    if book.language.to_lowercase().trim() != "other" {
+        score_boost += 10;
+    }
+    if book.year > 0 {
+        score_boost += 5;
+    }
+    if book.pages > 0 {
+        score_boost += 15;
+    }
+
+    if !book.cover_url.is_empty() {
+        score_boost += 30;
+    }
+
+    score_boost
+}
+
+fn skip_this_book(book: &Book) -> bool {
+    book.title.contains("b~c@x！%b……x￥b") || book.author.contains("b~c@x！%b……x￥b")
 }
 
 #[test]

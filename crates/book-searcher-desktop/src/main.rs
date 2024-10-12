@@ -88,14 +88,44 @@ async fn search(
     searcher: tauri::State<'_, Mutex<Searcher>>,
     query: SearchQuery,
     limit: usize,
-) -> Result<Vec<Book>, ()> {
+    offset: usize,
+) -> Result<(Vec<Book>, usize), ()> {
     info!("Search: {query:?}");
-    Ok(searcher.lock().await.search(&query, limit))
+    Ok(searcher.lock().await.search(&query, limit, offset))
 }
 
 #[tauri::command]
 fn version() -> String {
     VERSION.to_string()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateIndexConfig {
+    pub raw_files: Vec<PathBuf>,
+    pub compressor: String,
+}
+#[tauri::command]
+async fn create_index(
+    searcher: State<'_, Mutex<Searcher>>,
+    create_index_config: CreateIndexConfig,
+) -> Result<(), String> {
+    let mut searcher = searcher.lock().await;
+    let compressor = if create_index_config.compressor.is_empty() {
+        "none"
+    } else {
+        &create_index_config.compressor
+    };
+    searcher.set_compressor(compressor);
+
+    if create_index_config.raw_files.is_empty() {
+        return Err("csv file is missing!".to_string());
+    } else {
+        create_index_config
+            .raw_files
+            .iter()
+            .for_each(|file| searcher.index(file));
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -111,10 +141,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(config)
         .manage(searcher)
         .invoke_handler(tauri::generate_handler![
-            version, search, get_config, set_config
+            version,
+            search,
+            get_config,
+            set_config,
+            create_index
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

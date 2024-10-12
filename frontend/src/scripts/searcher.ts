@@ -10,6 +10,8 @@ export interface Book {
   pages?: number;
   isbn: string;
   ipfs_cid: string;
+  cover_url?: string;
+  md5?: string;
 }
 
 export interface SearchQuery {
@@ -20,9 +22,11 @@ export interface SearchQuery {
   extension?: string;
   language?: string;
   isbn?: string;
+  md5?: string;
 
   query?: string;
   limit: number;
+  offset: number;
 }
 
 export default async function search(query: SearchQuery) {

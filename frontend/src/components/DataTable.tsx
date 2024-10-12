@@ -1,10 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   Collapse,
   Flex,
   Icon,
   IconButton,
-  IconButtonProps,
   Table,
   TableProps,
   Tbody,
@@ -24,48 +23,48 @@ import {
 } from '@chakra-ui/react';
 import {
   type ColumnDef,
-  type PaginationState,
   type Row,
   type RowData,
   flexRender,
   getCoreRowModel,
   getExpandedRowModel,
-  getPaginationRowModel,
+  // getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-  getFilteredRowModel
+  getFilteredRowModel,
+  OnChangeFn
 } from '@tanstack/react-table';
-import {
-  TbArrowNarrowDown,
-  TbArrowNarrowUp,
-  TbArrowsSort,
-  TbChevronLeft,
-  TbChevronRight,
-  TbChevronsLeft,
-  TbChevronsRight,
-  TbFilter
-} from 'react-icons/tb';
+import { TbArrowNarrowDown, TbArrowNarrowUp, TbArrowsSort, TbFilter } from 'react-icons/tb';
 import { useTranslation } from 'react-i18next';
-
+import Pagination from './Pagination';
+type Breakpoint = 'base' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 declare module '@tanstack/table-core' {
   interface ColumnMeta<TData extends RowData, TValue> {
     isNumeric?: boolean;
-    width?: number | string;
+    width?: number | string | Partial<Record<Breakpoint, number | string>>;
     filterRenderer?: (value: string) => JSX.Element;
-    breakpoint?: 'base' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+    breakpoint?: Breakpoint;
   }
 }
 
 const breakpoints = ['base', 'sm', 'md', 'lg', 'xl', '2xl'];
 
-function compareBreakpoints(a: string, b: string) {
+function compareBreakpoints(a: Breakpoint, b: Breakpoint) {
   return breakpoints.indexOf(a) >= breakpoints.indexOf(b);
 }
+
+export type PaginationState = {
+  pageSize: number;
+  pageIndex: number;
+};
+export type OnPaginationChange = OnChangeFn<PaginationState>;
 
 export interface DataTableProps<Data extends object> extends TableProps {
   data: Data[];
   columns: ColumnDef<Data, any>[];
-  pageSize?: number;
+  pagination: PaginationState;
+  setPagination: OnPaginationChange;
+  pageCount: number;
   filterSchema?: { [K in keyof Data]?: Data[K][] };
   renderSubComponent: (row: Row<Data>) => React.ReactNode;
 }
@@ -73,17 +72,15 @@ export interface DataTableProps<Data extends object> extends TableProps {
 export default function DataTable<Data extends object>({
   data,
   columns,
-  pageSize = 20,
+  pagination,
+  setPagination,
+  pageCount,
   filterSchema = {},
   renderSubComponent,
   ...props
 }: DataTableProps<Data>) {
   const { t } = useTranslation();
   const { colorMode } = useColorMode();
-  const [pagination, setPagination] = React.useState<PaginationState>({
-    pageSize,
-    pageIndex: 0
-  });
 
   const table = useReactTable({
     columns,
@@ -92,6 +89,7 @@ export default function DataTable<Data extends object>({
     state: {
       pagination
     },
+    pageCount,
 
     enableHiding: true,
 
@@ -103,11 +101,12 @@ export default function DataTable<Data extends object>({
     getRowCanExpand: () => true,
     getExpandedRowModel: getExpandedRowModel(),
 
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
+    // getPaginationRowModel: getPaginationRowModel(),
     onPaginationChange: setPagination
   });
 
-  const breakpoint = useBreakpoint();
+  const breakpoint = useBreakpoint() as Breakpoint;
 
   useEffect(() => {
     table.resetExpanded();
@@ -120,6 +119,27 @@ export default function DataTable<Data extends object>({
     });
   }, [breakpoint, data]);
 
+  const getColumnWidth = useCallback(
+    (
+      width: string | number | Partial<Record<Breakpoint, string | number>> | undefined,
+      breakpoint: Breakpoint
+    ) => {
+      if (typeof width === 'number' || typeof width === 'string') return width;
+      if (typeof width === 'object') {
+        const breakpointIndex = breakpoints.indexOf(breakpoint);
+        const widthBreakpoints = Object.keys(width).sort(
+          (a, b) => breakpoints.indexOf(b) - breakpoints.indexOf(a)
+        ) as Breakpoint[];
+        const widthBreakpoint = widthBreakpoints.find(
+          (bp) => breakpoints.indexOf(bp) <= breakpointIndex
+        );
+        if (widthBreakpoint) return width[widthBreakpoint];
+      }
+      return 'auto';
+    },
+    []
+  );
+
   return (
     <>
       <Table {...props}>
@@ -131,7 +151,7 @@ export default function DataTable<Data extends object>({
                 return header.column.getIsVisible() ? (
                   <Th
                     key={header.id}
-                    w={meta?.width ?? 'auto'}
+                    w={getColumnWidth(meta?.width, breakpoint)}
                     isNumeric={meta?.isNumeric ?? false}
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}
@@ -221,7 +241,12 @@ export default function DataTable<Data extends object>({
                       isNumeric={meta?.isNumeric ?? false}
                       borderBottom="none"
                       overflow="hidden"
-                      textOverflow="ellipsis"
+                      padding={
+                        cell.column.id == 'cover_url' || cell.column.id == 'ipfs_cid'
+                          ? '0'
+                          : undefined
+                      }
+                      textOverflow={cell.id.endsWith('title') ? 'ellipsis' : 'hidden'}
                       title={(cell.getValue() as any)?.toString()}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -241,62 +266,21 @@ export default function DataTable<Data extends object>({
         </Tbody>
       </Table>
       {data.length === 0 && (
-        <Flex mt={16} mb={12} justifyContent="center">
+        <Flex mt={16} mb={12} justifyContent="center" minH="200px">
           <Text color={colorMode === 'light' ? 'gray.400' : 'gray.600'}>{t('table.no_data')}</Text>
         </Flex>
       )}
-      <Flex w="full" mt={4} justify="flex-end" wrap="wrap">
-        <IconButton
-          aria-label={t('table.first_page')}
-          title={t('table.first_page') ?? ''}
-          icon={<Icon as={TbChevronsLeft} />}
-          mr={1}
-          display={{ base: 'none', md: 'inline-flex' }}
-          onClick={() => table.setPageIndex(0)}
-          disabled={!table.getCanPreviousPage()}
-        />
-        <IconButton
-          aria-label={t('table.previous_page')}
-          title={t('table.previous_page') ?? ''}
-          icon={<Icon as={TbChevronLeft} />}
-          mr={1}
-          onClick={() => table.previousPage()}
-          disabled={!table.getCanPreviousPage()}
-        />
-        {Array.from({ length: table.getPageCount() }, (_, i) => i).map((pageIndex) => {
-          const title = t('table.page', { page: pageIndex + 1 });
-          const disabled = pagination.pageIndex === pageIndex;
-          const style: Partial<IconButtonProps> = disabled ? { colorScheme: 'blue' } : {};
-          return (
-            <IconButton
-              aria-label={title}
-              title={title}
-              key={pageIndex}
-              icon={<Text>{pageIndex + 1}</Text>}
-              mr={1}
-              onClick={() => table.setPageIndex(pageIndex)}
-              disabled={disabled}
-              {...style}
-            />
-          );
-        })}
-        <IconButton
-          aria-label={t('table.next_page')}
-          title={t('table.next_page') ?? ''}
-          icon={<Icon as={TbChevronRight} />}
-          mr={{ base: 0, md: 1 }}
-          onClick={() => table.nextPage()}
-          disabled={!table.getCanNextPage()}
-        />
-        <IconButton
-          aria-label={t('table.last_page')}
-          title={t('table.last_page') ?? ''}
-          icon={<Icon as={TbChevronsRight} />}
-          display={{ base: 'none', md: 'inline-flex' }}
-          onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-          disabled={!table.getCanNextPage()}
-        />
-      </Flex>
+      <Pagination
+        w="full"
+        mt={4}
+        pageCount={table.getPageCount()}
+        pageIndex={pagination.pageIndex}
+        setPageIndex={table.setPageIndex}
+        canPreviousPage={table.getCanPreviousPage()}
+        previousPage={table.previousPage}
+        canNextPage={table.getCanNextPage()}
+        nextPage={table.nextPage}
+      />
     </>
   );
 }

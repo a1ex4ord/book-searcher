@@ -8,6 +8,7 @@ use tantivy::{
 };
 use tantivy_meta_tokenizer::{get_tokenizer, META_TOKENIZER};
 
+mod always_merge_policy;
 pub mod index;
 pub mod search;
 
@@ -35,6 +36,10 @@ pub struct Book {
     pub isbn: String,
     #[serde_as(deserialize_as = "DefaultOnNull")]
     pub ipfs_cid: String,
+    #[serde_as(deserialize_as = "DefaultOnNull")]
+    pub cover_url: String,
+    #[serde_as(deserialize_as = "DefaultOnNull")]
+    pub md5: String,
 }
 
 impl From<(&Schema, Document)> for Book {
@@ -69,7 +74,9 @@ impl From<(&Schema, Document)> for Book {
             year: get_field_u64!("year"),
             pages: get_field_u64!("pages"),
             isbn: get_field_text!("isbn"),
+            md5: get_field_text!("md5"),
             ipfs_cid: get_field_text!("ipfs_cid"),
+            cover_url: get_field_text!("cover_url"),
         }
     }
 }
@@ -88,14 +95,16 @@ pub struct Searcher {
     title: Field,
     author: Field,
     publisher: Field,
-    publisher_exist: Field,
     extension: Field,
     filesize: Field,
     language: Field,
     year: Field,
     pages: Field,
     isbn: Field,
+    md5: Field,
     ipfs_cid: Field,
+    cover_url: Field,
+    score_boost: Field,
 }
 
 impl Searcher {
@@ -112,15 +121,16 @@ impl Searcher {
         let title = schema_builder.add_text_field("title", text_options.clone());
         let author = schema_builder.add_text_field("author", text_options.clone());
         let publisher = schema_builder.add_text_field("publisher", text_options);
-        // publisher_exist is for score tweaking
-        let publisher_exist = schema_builder.add_bool_field("publisher_exist", FAST);
         let extension = schema_builder.add_text_field("extension", STRING | STORED);
         let filesize = schema_builder.add_u64_field("filesize", STORED);
         let language = schema_builder.add_text_field("language", TEXT | STORED);
         let year = schema_builder.add_u64_field("year", STORED);
         let pages = schema_builder.add_u64_field("pages", STORED | FAST);
         let isbn = schema_builder.add_text_field("isbn", TEXT | STORED);
+        let md5 = schema_builder.add_text_field("md5", STORED);
         let ipfs_cid = schema_builder.add_text_field("ipfs_cid", STORED);
+        let cover_url = schema_builder.add_text_field("cover_url", STORED);
+        let score_boost = schema_builder.add_u64_field("score_boost", FAST);
         let schema = schema_builder.build();
 
         // open or create index
@@ -144,7 +154,7 @@ impl Searcher {
         query_parser.set_conjunction_by_default();
 
         Self {
-            compressor: Compressor::Brotli,
+            compressor: Compressor::None,
 
             index,
             schema,
@@ -155,14 +165,16 @@ impl Searcher {
             title,
             author,
             publisher,
-            publisher_exist,
             extension,
             filesize,
             language,
             year,
             pages,
             isbn,
+            md5,
             ipfs_cid,
+            cover_url,
+            score_boost,
         }
     }
 
@@ -170,16 +182,11 @@ impl Searcher {
         let compressor = match compressor {
             "none" => Compressor::None,
             "lz4" => Compressor::Lz4,
-            "brotli" => Compressor::Brotli,
-            "snappy" => Compressor::Snappy,
             _ => {
                 if compressor.starts_with("zstd") {
                     Compressor::Zstd(ZstdCompressor::default())
                 } else {
-                    println!(
-                        "compressor not valid: {:#?}",
-                        ["none", "lz4", "brotli", "snappy", "zstd",]
-                    );
+                    println!("compressor not valid: {:#?}", ["none", "lz4", "zstd",]);
                     std::process::exit(1);
                 }
             }

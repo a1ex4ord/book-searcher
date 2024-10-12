@@ -1,5 +1,5 @@
 [package]
-name = "book-searcher-lambda"
+name = "tools"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -18,14 +18,7 @@ log = { workspace = true }
 serde = { workspace = true }
 serde_with = { workspace = true }
 
-actix-web = "4"
-
-lambda-web = { version = "0.2.0", features=["actix4"] }
-tokio = { version = "1.24", features = ["full"] }
-
-[build-dependencies]
-static-files = "0.2"
-
-[features]
-default = []
-pinyin = ["book-searcher-core/pinyin"]
+csv = "1.1"
+url = "2.4"
+serde_json = "1.0"
+serde-jsonlines = "0.4"

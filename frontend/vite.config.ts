@@ -4,53 +4,45 @@ import react from '@vitejs/plugin-react';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { VitePWA } from 'vite-plugin-pwa';
 
-const websiteManifest = {
-  name: 'Book Searcher',
-  short_name: 'Book Searcher',
-  description: 'Easy and fast book searcher, create and search your private library.',
-  theme_color: '#ffffff',
-  icons: [
-    {
-      src: 'icon.png',
-      sizes: '512x512',
-      type: 'image/png'
-    },
-    {
-      src: 'icon.png',
-      sizes: '512x512',
-      type: 'image/png',
-      purpose: 'any maskable'
-    }
-  ]
-};
+const appName = 'Book Searcher';
+const description = 'Easy and fast book searcher, create and search your private library.';
 
 const vitePWAPlugin = VitePWA({
   injectRegister: 'auto',
   registerType: 'autoUpdate',
-  manifest: websiteManifest,
+  manifest: false,
   workbox: {
     clientsClaim: true,
     skipWaiting: true,
     runtimeCaching: [
       {
         urlPattern: /search/,
-        handler: 'NetworkFirst',
+        handler: 'StaleWhileRevalidate',
         options: {
-          cacheName: 'search-cache'
+          cacheName: 'search-cache',
+          expiration: {
+            maxAgeSeconds: 60 * 60
+          }
         }
       },
       {
         urlPattern: /(.*?)\.(js|css)/,
         handler: 'StaleWhileRevalidate',
         options: {
-          cacheName: 'js-css-cache'
+          cacheName: 'js-css-cache',
+          expiration: {
+            maxAgeSeconds: 60 * 60 * 24
+          }
         }
       },
       {
         urlPattern: /(.*?)\.(png|jpe?g|svg|gif|ico|bmp|psd|tiff|tga|eps)/,
         handler: 'StaleWhileRevalidate',
         options: {
-          cacheName: 'image-cache'
+          cacheName: 'image-cache',
+          expiration: {
+            maxAgeSeconds: 60 * 60 * 24 * 7
+          }
         }
       }
     ]
@@ -71,15 +63,21 @@ export default defineConfig(() => {
       react(),
       process.env.VITE_TAURI === '0'
         ? faviconsPlugin({
+            appName: appName,
+            appShortName: appName,
+            appDescription: description,
             icons: {
               favicons: {
-                source: '../crates/book-searcher-desktop/icons/icon.png'
+                source: 'icon.png'
               },
               android: {
-                source: '../crates/book-searcher-desktop/icons/icon.png'
+                source: 'icon.png'
               },
               appleStartup: {
-                source: '../crates/book-searcher-desktop/icons/icon.png'
+                source: 'icon.png'
+              },
+              appleIcon: {
+                source: 'icon.png'
               }
             }
           })

@@ -4,7 +4,7 @@ use actix_web::{
 use actix_web_static_files::ResourceFiles;
 use book_searcher_core::{Book, Searcher};
 use clap::Parser;
-use log::{info, LevelFilter};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc};
 
@@ -34,17 +34,29 @@ struct SearchQuery {
     query: book_searcher_core::search::SearchQuery,
     #[serde(default = "default_limit")]
     limit: usize,
+    #[serde(default)]
+    offset: usize,
 }
 
 #[derive(Serialize)]
 struct SearchResult {
+    total: usize,
+    offset: usize,
+    limit: usize,
     books: Vec<Book>,
 }
 
 #[get("/search")]
 async fn search(query: web::Query<SearchQuery>, state: web::Data<AppState>) -> impl Responder {
-    let books = state.searcher.search(&query.query, query.limit);
-    let result = SearchResult { books };
+    let (books, count) = state
+        .searcher
+        .search(&query.query, query.limit, query.offset);
+    let result = SearchResult {
+        total: count,
+        offset: query.offset,
+        limit: query.limit,
+        books,
+    };
 
     return HttpResponse::Ok()
         .insert_header(header::ContentType::json())
@@ -86,14 +98,14 @@ struct Index {
     #[clap(
         short,
         long,
-        default_value = "brotli",
-        help = "specify index compressor: none, lz4, brotli, snappy, zstd"
+        default_value = "none",
+        help = "specify index compressor: none, lz4, zstd"
     )]
     compressor: String,
 }
 
 fn main() {
-    env_logger::builder().filter_level(LevelFilter::Info).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = AppOpts::parse();
     match args.subcmd {
@@ -104,7 +116,7 @@ fn main() {
 
 #[actix_web::main]
 async fn run(opts: Run) -> std::io::Result<()> {
-    info!("book-searcher webserver started!");
+    info!("Webserver started: http://{}", opts.bind);
 
     let index_dir = std::env::current_exe()
         .unwrap()

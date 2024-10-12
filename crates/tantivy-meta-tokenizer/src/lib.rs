@@ -3,28 +3,32 @@
 
 use stop_word::STOP_WORDS;
 use tantivy::tokenizer::{
-    AsciiFoldingFilter, BoxTokenStream, LowerCaser, RemoveLongFilter, StopWordFilter, TextAnalyzer,
+    BoxTokenStream, LowerCaser, RemoveLongFilter, SimpleTokenizer, StopWordFilter, TextAnalyzer,
     Token, TokenStream, Tokenizer,
 };
 mod chinese;
-mod latin;
 mod stop_word;
 pub mod utils;
 
 pub const META_TOKENIZER: &str = "meta_tokenizer";
 
 pub fn get_tokenizer() -> TextAnalyzer {
-    TextAnalyzer::from(MetaTokenizer)
-        .filter(RemoveLongFilter::limit(20))
-        .filter(AsciiFoldingFilter)
-        .filter(StopWordFilter::remove(
-            STOP_WORDS.iter().map(|&word| word.to_owned()),
-        ))
-        .filter(LowerCaser)
+    TextAnalyzer::builder(MetaTokenizer {
+        latin: SimpleTokenizer::default(),
+    })
+    .filter(RemoveLongFilter::limit(20))
+    // .filter(AsciiFoldingFilter) // spammy search results
+    .filter(StopWordFilter::remove(
+        STOP_WORDS.iter().map(|&word| word.to_owned()),
+    ))
+    .filter(LowerCaser)
+    .build()
 }
 
 #[derive(Clone)]
-pub struct MetaTokenizer;
+pub struct MetaTokenizer {
+    latin: SimpleTokenizer,
+}
 
 pub struct MetaTokenStream {
     tokens: Vec<Token>,
@@ -51,18 +55,20 @@ impl TokenStream for MetaTokenStream {
 }
 
 impl Tokenizer for MetaTokenizer {
-    fn token_stream<'a>(&self, text: &'a str) -> BoxTokenStream<'a> {
+    type TokenStream<'a> = BoxTokenStream<'a>;
+
+    fn token_stream<'a>(&'a mut self, text: &'a str) -> BoxTokenStream<'a> {
         if text.is_empty() {
-            return BoxTokenStream::from(MetaTokenStream {
+            return BoxTokenStream::new(MetaTokenStream {
                 tokens: vec![],
                 index: 0,
             });
         }
 
         if utils::is_chinese(text) {
-            return chinese::token_stream(text);
+            return BoxTokenStream::new(chinese::token_stream(text));
         }
 
-        return latin::token_stream(text);
+        return BoxTokenStream::new(self.latin.token_stream(text));
     }
 }
